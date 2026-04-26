@@ -2,6 +2,8 @@
 
 A small macOS menu-bar utility that moves the mouse cursor between displays with a keyboard shortcut or a four-finger trackpad tap.
 
+This fork is based on the original [maoxiaoke/d-switch](https://github.com/maoxiaoke/d-switch) project. Thanks to the original author for the foundation this builds on.
+
 ## Usage
 
 - **Cmd+Shift+M** — default keyboard shortcut (rebindable from the menu)
@@ -38,12 +40,6 @@ Core functionality works without special permissions. For the best experience, g
 - **Accessibility** status and settings shortcut — shows whether smart landing can use focused controls and text carets
 - **Quit** — exit D-Switch
 
-## How I Built It
+## Architecture
 
-The entire app — every line of Swift, the Makefile, the README — was written by Claude Code (Anthropic's AI coding agent) through conversational prompts. No Xcode project, no SwiftUI, no third-party dependencies. Just `swiftc` compiling raw Swift files into a self-contained `.app` bundle.
-
-The icon was also AI-generated using Nano Banana (Gemini image generation), then converted to `.icns` with `sips` + `iconutil`.
-
-## Technical Details
-
-See [technology.md](technology.md) for implementation details on cursor positioning, gesture detection, display ordering, and architecture.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for implementation details on cursor positioning, gesture detection, display ordering, and architecture.

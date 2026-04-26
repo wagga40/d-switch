@@ -1,6 +1,6 @@
-# Technical Details
+# Architecture
 
-## Architecture
+## Source Layout
 
 ```
 Sources/
