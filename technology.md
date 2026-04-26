@@ -81,7 +81,8 @@ The trackpad gesture uses the private MultitouchSupport framework — the same a
 
 All preferences live in the menu bar (no separate Preferences window) and persist via `UserDefaults`:
 
-- **Shortcut** — record a new global hotkey via *Change Shortcut…*. The recorder requires at least one modifier (⌘/⌃/⌥/⇧) to avoid bare-letter shortcuts hijacking ordinary typing. Esc cancels.
+- **Shortcut** — record a new global hotkey via *Change Shortcut…*. The recorder requires at least one modifier (⌘/⌃/⌥/⇧) to avoid bare-letter shortcuts hijacking ordinary typing. Esc cancels. If macOS rejects the shortcut, D-Switch keeps the previous shortcut and shows a warning.
+- **Four-Finger Tap** — toggle the trackpad trigger on or off without affecting the keyboard shortcut.
 - **Cursor Lands At** — choose between *Topmost Window (Smart)* (the AX-driven four-tier landing described above) and *Display Center* (always the geometric center of the target display).
 - **Ring Animation** — three presets: *Subtle* (close to the original feel), *Standard* (default; larger and longer than the original), *Prominent* (largest and slowest, useful on busy displays). Stroke widths scale with the ring diameter so the proportions stay consistent.
 - **Launch at Login** — toggle in the menu to register/unregister the app via `SMAppService.mainApp` (ServiceManagement). The checkmark reflects the current state; the user can also manage it in System Settings → General → Login Items. macOS may decline registration if the bundle is not in `/Applications`; in that case D-Switch shows an alert and the toggle stays off.
@@ -94,7 +95,7 @@ Preferences are written through `UserDefaults.standard` under the bundle identif
 ~/Library/Preferences/com.dswitch.app.plist
 ```
 
-Stored keys include the recorded shortcut, the *Cursor Lands At* mode, and the *Ring Animation* preset. *Launch at Login* state is managed by macOS via `SMAppService` and is not stored in this plist.
+Stored keys include the recorded shortcut, the *Cursor Lands At* mode, the *Ring Animation* preset, and whether the four-finger tap trigger is enabled. *Launch at Login* state is managed by macOS via `SMAppService` and is not stored in this plist.
 
 Because macOS caches defaults in memory through `cfprefsd`, prefer the `defaults` CLI over editing the plist directly:
 
@@ -106,8 +107,8 @@ defaults delete com.dswitch.app                # reset all
 
 ## Known Limitations
 
-- If another app registers the same global shortcut, D-Switch logs a warning and remains usable via the menu bar and trackpad gesture.
+- If another app registers the same global shortcut, D-Switch shows a warning and remains usable via the menu bar and trackpad gesture.
 - **Four-finger tap uses a private framework** (MultitouchSupport). While this framework has been stable across many macOS versions, Apple could change or remove it in a future release. If that happens, the gesture stops working but the app continues to function via the keyboard shortcut.
 - **No trackpad on desktop Macs** (Mac mini, Mac Studio, Mac Pro without Magic Trackpad): the gesture is unavailable; the keyboard shortcut works normally.
 - The visual hint uses the system accent color. If your accent color has low contrast against your wallpaper, the hint may be less visible.
-- Single-display setups: both triggers do nothing (by design).
+- Single-display setups: both triggers show a one-time hint and then do nothing (by design).

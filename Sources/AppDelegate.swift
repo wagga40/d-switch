@@ -36,7 +36,7 @@ enum CursorLandingMode: String {
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private var statusItem: NSStatusItem!
     private let hotkeyManager = HotkeyManager()
@@ -50,16 +50,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentShortcut: Shortcut = .default
     private var landingMode: CursorLandingMode = .default
     private var ringPreset: RingPreset = .default
+    private var fourFingerTapEnabled = true
 
     private var shortcutMenuItem: NSMenuItem!
     private var landingModeItems: [CursorLandingMode: NSMenuItem] = [:]
     private var ringPresetItems: [RingPreset: NSMenuItem] = [:]
     private var launchAtLoginItem: NSMenuItem!
+    private var accessibilityStatusItem: NSMenuItem!
+    private var fourFingerTapItem: NSMenuItem!
+
+    private static let fourFingerTapEnabledKey = "fourFingerTapEnabled"
+    private static let didShowSingleDisplayHintKey = "didShowSingleDisplayHint"
+
+    private static func loadFourFingerTapEnabled() -> Bool {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: fourFingerTapEnabledKey) != nil else { return true }
+        return defaults.bool(forKey: fourFingerTapEnabledKey)
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         currentShortcut = Shortcut.load()
         landingMode = CursorLandingMode.load()
         ringPreset = RingPreset.current()
+        fourFingerTapEnabled = Self.loadFourFingerTapEnabled()
 
         setupMenuBar()
         registerHotkey()
@@ -73,10 +86,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
         if let button = statusItem.button {
+            button.toolTip = "D-Switch: move cursor to the next display"
+            button.setAccessibilityLabel("D-Switch: move cursor to the next display")
             let symbolNames = ["rectangle.2.swap", "display.2", "arrow.left.arrow.right"]
             var found = false
             for name in symbolNames {
-                if let image = NSImage(systemSymbolName: name, accessibilityDescription: "D-Switch") {
+                if let image = NSImage(systemSymbolName: name, accessibilityDescription: "Move cursor to next display") {
                     image.isTemplate = true
                     button.image = image
                     found = true
@@ -89,6 +104,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let menu = NSMenu()
+        menu.delegate = self
 
         let titleItem = NSMenuItem(title: "D-Switch", action: nil, keyEquivalent: "")
         titleItem.isEnabled = false
@@ -111,6 +127,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let resetShortcutItem = NSMenuItem(title: "Reset Shortcut", action: #selector(resetShortcut), keyEquivalent: "")
         resetShortcutItem.target = self
         menu.addItem(resetShortcutItem)
+
+        fourFingerTapItem = NSMenuItem(title: "Four-Finger Tap", action: #selector(toggleFourFingerTap), keyEquivalent: "")
+        fourFingerTapItem.target = self
+        fourFingerTapItem.state = fourFingerTapEnabled ? .on : .off
+        menu.addItem(fourFingerTapItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -149,6 +170,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         launchAtLoginItem.state = LoginItemManager.isEnabled ? .on : .off
         menu.addItem(launchAtLoginItem)
 
+        accessibilityStatusItem = NSMenuItem(title: accessibilityStatusTitle(), action: nil, keyEquivalent: "")
+        accessibilityStatusItem.isEnabled = false
+        menu.addItem(accessibilityStatusItem)
+
         let accessibilityItem = NSMenuItem(title: "Open Accessibility Settings\u{2026}", action: #selector(openAccessibilitySettings), keyEquivalent: "")
         accessibilityItem.target = self
         menu.addItem(accessibilityItem)
@@ -163,14 +188,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func shortcutLabel() -> String {
-        "Shortcut: \(currentShortcut.displayString)  \u{00B7}  4-finger tap"
+        if fourFingerTapEnabled {
+            return "Shortcut: \(currentShortcut.displayString)  \u{00B7}  4-finger tap"
+        }
+        return "Shortcut: \(currentShortcut.displayString)"
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        launchAtLoginItem.state = LoginItemManager.isEnabled ? .on : .off
+        accessibilityStatusItem.title = accessibilityStatusTitle()
     }
 
     // MARK: - Hotkey
 
     private func registerHotkey() {
-        hotkeyManager.register(shortcut: currentShortcut) { [weak self] in
+        let registered = hotkeyManager.register(shortcut: currentShortcut) { [weak self] in
             self?.moveCursor()
+        }
+        if !registered {
+            showHotkeyRegistrationAlert(for: currentShortcut)
         }
     }
 
@@ -181,25 +217,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             self.recorderWindow = nil
             guard let shortcut = shortcut else { return }
+            guard self.hotkeyManager.update(to: shortcut) else {
+                _ = self.hotkeyManager.update(to: self.currentShortcut)
+                self.showHotkeyRegistrationAlert(for: shortcut)
+                return
+            }
             self.currentShortcut = shortcut
             shortcut.save()
-            self.hotkeyManager.update(to: shortcut)
             self.shortcutMenuItem.title = self.shortcutLabel()
         }
     }
 
     @objc private func resetShortcut() {
+        guard hotkeyManager.update(to: .default) else {
+            _ = hotkeyManager.update(to: currentShortcut)
+            showHotkeyRegistrationAlert(for: .default)
+            return
+        }
         currentShortcut = .default
         currentShortcut.save()
-        hotkeyManager.update(to: currentShortcut)
         shortcutMenuItem.title = shortcutLabel()
+    }
+
+    private func showHotkeyRegistrationAlert(for shortcut: Shortcut) {
+        let alert = NSAlert()
+        alert.messageText = "Couldn't register \(shortcut.displayString)"
+        let fallback = fourFingerTapEnabled ? "the menu bar and four-finger tap" : "the menu bar"
+        alert.informativeText = "That shortcut may already be used by macOS or another app. D-Switch still works from \(fallback)."
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     // MARK: - Gesture
 
     private func startGestureDetection() {
+        guard fourFingerTapEnabled else { return }
         gestureManager.start { [weak self] in
             self?.moveCursor()
+        }
+    }
+
+    @objc private func toggleFourFingerTap() {
+        fourFingerTapEnabled.toggle()
+        UserDefaults.standard.set(fourFingerTapEnabled, forKey: Self.fourFingerTapEnabledKey)
+        fourFingerTapItem.state = fourFingerTapEnabled ? .on : .off
+        shortcutMenuItem.title = shortcutLabel()
+
+        if fourFingerTapEnabled {
+            startGestureDetection()
+        } else {
+            gestureManager.stop()
         }
     }
 
@@ -211,6 +278,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func moveCursor() {
         let screens = displayManager.orderedScreens()
+        guard screens.count > 1 else {
+            showSingleDisplayHintIfNeeded()
+            return
+        }
         guard let target = cursorMover.nextScreen(from: screens) else { return }
 
         let landingPoint: CGPoint
@@ -227,6 +298,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         cursorMover.warpCursor(to: landingPoint)
         overlayManager.showHint(at: landingPoint, on: target)
+    }
+
+    private func showSingleDisplayHintIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: Self.didShowSingleDisplayHintKey) else { return }
+        defaults.set(true, forKey: Self.didShowSingleDisplayHintKey)
+
+        let alert = NSAlert()
+        alert.messageText = "Only one display is connected"
+        alert.informativeText = "D-Switch moves the cursor between displays. Connect another display and try again."
+        alert.alertStyle = .informational
+        alert.runModal()
     }
 
     @objc private func selectLandingMode(_ sender: NSMenuItem) {
@@ -267,9 +350,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private static let didPromptAccessibilityKey = "didPromptAccessibility"
 
-    private func checkAccessibility() {
+    private func accessibilityStatusTitle() -> String {
+        isAccessibilityTrusted() ? "Accessibility: Enabled" : "Accessibility: Needed for smart landing"
+    }
+
+    private func isAccessibilityTrusted() -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
+        return AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func checkAccessibility() {
+        let trusted = isAccessibilityTrusted()
         let defaults = UserDefaults.standard
         if trusted {
             NSLog("[D-Switch] Accessibility: trusted")

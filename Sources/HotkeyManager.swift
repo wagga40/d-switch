@@ -8,7 +8,7 @@ class HotkeyManager {
     private var currentShortcut: Shortcut?
     fileprivate var onHotkey: (() -> Void)?
 
-    func register(shortcut: Shortcut, callback: @escaping () -> Void) {
+    func register(shortcut: Shortcut, callback: @escaping () -> Void) -> Bool {
         unregister()
         self.onHotkey = callback
 
@@ -30,22 +30,22 @@ class HotkeyManager {
 
         guard installStatus == noErr else {
             NSLog("[D-Switch] Failed to install Carbon event handler (status: \(installStatus))")
-            return
+            return false
         }
 
-        registerCarbonHotkey(shortcut)
+        return registerCarbonHotkey(shortcut)
     }
 
     /// Re-registers the Carbon hotkey with a new shortcut, keeping the existing callback.
-    func update(to shortcut: Shortcut) {
+    func update(to shortcut: Shortcut) -> Bool {
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
             hotKeyRef = nil
         }
-        registerCarbonHotkey(shortcut)
+        return registerCarbonHotkey(shortcut)
     }
 
-    private func registerCarbonHotkey(_ shortcut: Shortcut) {
+    private func registerCarbonHotkey(_ shortcut: Shortcut) -> Bool {
         // "DSWT" as FourCharCode: D=0x44 S=0x53 W=0x57 T=0x54
         let hotKeyID = EventHotKeyID(signature: 0x44535754, id: 1)
 
@@ -61,9 +61,11 @@ class HotkeyManager {
         if registerStatus != noErr {
             NSLog("[D-Switch] Failed to register hotkey \(shortcut.displayString) (status: \(registerStatus)). The shortcut may conflict with another app. Use the menu bar item to move the cursor.")
             currentShortcut = nil
+            return false
         } else {
             NSLog("[D-Switch] Registered global hotkey: \(shortcut.displayString)")
             currentShortcut = shortcut
+            return true
         }
     }
 

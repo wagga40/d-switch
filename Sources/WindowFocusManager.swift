@@ -3,7 +3,6 @@ import ApplicationServices
 
 struct FocusResult {
     let cursorTarget: CGPoint  // Best landing point in CG coordinates
-    let appName: String?
 }
 
 /// Detects the topmost window on the target display, activates it, and determines
@@ -38,7 +37,7 @@ class WindowFocusManager {
         }
 
         let target = axPoint ?? window.center
-        return FocusResult(cursorTarget: target, appName: window.ownerName)
+        return FocusResult(cursorTarget: target)
     }
 
     // MARK: - AX Focus Detection
@@ -141,7 +140,6 @@ class WindowFocusManager {
     private struct WindowInfo {
         let pid: pid_t
         let center: CGPoint
-        let ownerName: String?
     }
 
     private func topWindow(on screen: NSScreen) -> WindowInfo? {
@@ -176,8 +174,7 @@ class WindowFocusManager {
 
             return WindowInfo(
                 pid: pid,
-                center: CGPoint(x: centerX, y: centerY),
-                ownerName: entry[kCGWindowOwnerName] as? String
+                center: CGPoint(x: centerX, y: centerY)
             )
         }
 

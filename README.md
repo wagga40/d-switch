@@ -5,7 +5,7 @@ A small macOS menu-bar utility that moves the mouse cursor between displays with
 ## Usage
 
 - **Cmd+Shift+M** — default keyboard shortcut (rebindable from the menu)
-- **Four-finger tap** on the trackpad
+- **Four-finger tap** on the trackpad (can be turned off from the menu)
 
 Both triggers move the cursor to the next display and show a brief ring animation so you can instantly locate the cursor. By default the cursor lands on the topmost window's focus point; you can switch it to the center of the display from the menu.
 
@@ -32,8 +32,10 @@ Core functionality works without special permissions. For the best experience, g
 - **Move Cursor Now** — same as the keyboard shortcut
 - **Change Shortcut…** — record a new global shortcut (needs at least one modifier)
 - **Reset Shortcut** — restore Cmd+Shift+M
+- **Four-Finger Tap** — enable or disable the trackpad trigger
 - **Cursor Lands At** — *Topmost Window (Smart)* or *Display Center*
 - **Ring Animation** — *Subtle*, *Standard*, or *Prominent*
+- **Accessibility** status and settings shortcut — shows whether smart landing can use focused controls and text carets
 - **Quit** — exit D-Switch
 
 ## How I Built It

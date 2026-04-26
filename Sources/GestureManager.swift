@@ -160,6 +160,7 @@ class GestureManager {
         if touchStride == 0 {
             guard detectStride(touches: touches, count: count) else { return }
         }
+        guard touchStride > 0 else { return }
 
         var sumX: Float = 0, sumY: Float = 0
         var valid = true
