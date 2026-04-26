@@ -9,7 +9,16 @@ build/
 *.xcworkspace
 xcuserdata/
 
+# VSCode
+.vscode/
+
 # Swift Package Manager
 .build/
 .swiftpm/
 Package.resolved
+
+# AI generated files
+.cursor/
+.cursorrules
+CLAUDE.md
+.claude/

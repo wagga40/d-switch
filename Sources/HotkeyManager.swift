@@ -5,9 +5,10 @@ class HotkeyManager {
 
     private var hotKeyRef: EventHotKeyRef?
     private var eventHandlerRef: EventHandlerRef?
+    private var currentShortcut: Shortcut?
     fileprivate var onHotkey: (() -> Void)?
 
-    func register(callback: @escaping () -> Void) {
+    func register(shortcut: Shortcut, callback: @escaping () -> Void) {
         unregister()
         self.onHotkey = callback
 
@@ -32,12 +33,25 @@ class HotkeyManager {
             return
         }
 
+        registerCarbonHotkey(shortcut)
+    }
+
+    /// Re-registers the Carbon hotkey with a new shortcut, keeping the existing callback.
+    func update(to shortcut: Shortcut) {
+        if let ref = hotKeyRef {
+            UnregisterEventHotKey(ref)
+            hotKeyRef = nil
+        }
+        registerCarbonHotkey(shortcut)
+    }
+
+    private func registerCarbonHotkey(_ shortcut: Shortcut) {
         // "DSWT" as FourCharCode: D=0x44 S=0x53 W=0x57 T=0x54
         let hotKeyID = EventHotKeyID(signature: 0x44535754, id: 1)
 
         let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_M),
-            UInt32(cmdKey | shiftKey),
+            shortcut.keyCode,
+            shortcut.carbonModifiers,
             hotKeyID,
             GetApplicationEventTarget(),
             0,
@@ -45,9 +59,11 @@ class HotkeyManager {
         )
 
         if registerStatus != noErr {
-            NSLog("[D-Switch] Failed to register hotkey Cmd+Shift+M (status: \(registerStatus)). The shortcut may conflict with another app. Use the menu bar item to move the cursor.")
+            NSLog("[D-Switch] Failed to register hotkey \(shortcut.displayString) (status: \(registerStatus)). The shortcut may conflict with another app. Use the menu bar item to move the cursor.")
+            currentShortcut = nil
         } else {
-            NSLog("[D-Switch] Registered global hotkey: Cmd+Shift+M")
+            NSLog("[D-Switch] Registered global hotkey: \(shortcut.displayString)")
+            currentShortcut = shortcut
         }
     }
 
@@ -60,6 +76,7 @@ class HotkeyManager {
             RemoveEventHandler(ref)
             eventHandlerRef = nil
         }
+        currentShortcut = nil
         onHotkey = nil
     }
 

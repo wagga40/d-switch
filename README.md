@@ -4,10 +4,10 @@ A small macOS menu-bar utility that moves the mouse cursor between displays with
 
 ## Usage
 
-- **Cmd+Shift+M** — keyboard shortcut
+- **Cmd+Shift+M** — default keyboard shortcut (rebindable from the menu)
 - **Four-finger tap** on the trackpad
 
-Both triggers move the cursor to the next display, focus the topmost window, and show a brief ring animation so you can instantly locate the cursor.
+Both triggers move the cursor to the next display and show a brief ring animation so you can instantly locate the cursor. By default the cursor lands on the topmost window's focus point; you can switch it to the center of the display from the menu.
 
 With two displays, each trigger toggles between them. With three or more, it cycles in spatial order (left-to-right, then top-to-bottom).
 
@@ -30,7 +30,10 @@ Core functionality works without special permissions. For the best experience, g
 ## Menu Bar
 
 - **Move Cursor Now** — same as the keyboard shortcut
-- **Auto-Focus Window** — toggle automatic window focusing
+- **Change Shortcut…** — record a new global shortcut (needs at least one modifier)
+- **Reset Shortcut** — restore Cmd+Shift+M
+- **Cursor Lands At** — *Topmost Window (Smart)* or *Display Center*
+- **Ring Animation** — *Subtle*, *Standard*, or *Prominent*
 - **Quit** — exit D-Switch
 
 ## How I Built It

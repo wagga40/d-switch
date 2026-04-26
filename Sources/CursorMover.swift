@@ -21,8 +21,8 @@ class CursorMover {
     /// Warps the cursor to the given CG point and posts a mouse-moved event.
     func warpCursor(to point: CGPoint) {
         CGWarpMouseCursorPosition(point)
-        if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved,
-                               mouseCursorPosition: point, mouseButton: .left) {
+        if let event = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, 
+                            mouseCursorPosition: point, mouseButton: .left) {
             event.post(tap: .cghidEventTap)
         }
     }

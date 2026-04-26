@@ -1,5 +1,41 @@
 import Cocoa
 
+enum CursorLandingMode: String {
+    case smartFocus
+    case displayCenter
+
+    static let `default`: CursorLandingMode = .smartFocus
+    static let storageKey = "cursorLandingMode"
+    static let legacyAutoFocusKey = "autoFocusTopWindow"
+
+    static func load() -> CursorLandingMode {
+        let defaults = UserDefaults.standard
+        // One-time migration from the old boolean key.
+        if let raw = defaults.string(forKey: storageKey),
+           let mode = CursorLandingMode(rawValue: raw) {
+            return mode
+        }
+        if defaults.object(forKey: legacyAutoFocusKey) != nil {
+            let migrated: CursorLandingMode = defaults.bool(forKey: legacyAutoFocusKey) ? .smartFocus : .displayCenter
+            defaults.set(migrated.rawValue, forKey: storageKey)
+            defaults.removeObject(forKey: legacyAutoFocusKey)
+            return migrated
+        }
+        return .default
+    }
+
+    func save() {
+        UserDefaults.standard.set(rawValue, forKey: Self.storageKey)
+    }
+
+    var displayName: String {
+        switch self {
+        case .smartFocus:    return "Topmost Window (Smart)"
+        case .displayCenter: return "Display Center"
+        }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
@@ -9,21 +45,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let cursorMover = CursorMover()
     private let windowFocusManager = WindowFocusManager()
     private let overlayManager = OverlayFeedbackManager()
+    private var recorderWindow: ShortcutRecorderWindow?
 
-    private static let autoFocusKey = "autoFocusTopWindow"
-    private var autoFocusItem: NSMenuItem!
+    private var currentShortcut: Shortcut = .default
+    private var landingMode: CursorLandingMode = .default
+    private var ringPreset: RingPreset = .default
+
+    private var shortcutMenuItem: NSMenuItem!
+    private var landingModeItems: [CursorLandingMode: NSMenuItem] = [:]
+    private var ringPresetItems: [RingPreset: NSMenuItem] = [:]
+    private var launchAtLoginItem: NSMenuItem!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: [Self.autoFocusKey: true])
+        currentShortcut = Shortcut.load()
+        landingMode = CursorLandingMode.load()
+        ringPreset = RingPreset.current()
+
         setupMenuBar()
         registerHotkey()
         startGestureDetection()
         checkAccessibility()
-    }
-
-    private var isAutoFocusEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Self.autoFocusKey) }
-        set { UserDefaults.standard.set(newValue, forKey: Self.autoFocusKey) }
     }
 
     // MARK: - Menu Bar
@@ -53,9 +94,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         titleItem.isEnabled = false
         menu.addItem(titleItem)
 
-        let shortcutItem = NSMenuItem(title: "\u{2318}\u{21E7}M  or  4-finger tap", action: nil, keyEquivalent: "")
-        shortcutItem.isEnabled = false
-        menu.addItem(shortcutItem)
+        shortcutMenuItem = NSMenuItem(title: shortcutLabel(), action: nil, keyEquivalent: "")
+        shortcutMenuItem.isEnabled = false
+        menu.addItem(shortcutMenuItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -63,17 +104,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         moveItem.target = self
         menu.addItem(moveItem)
 
-        autoFocusItem = NSMenuItem(title: "Auto-Focus Window", action: #selector(toggleAutoFocus), keyEquivalent: "")
-        autoFocusItem.target = self
-        autoFocusItem.state = isAutoFocusEnabled ? .on : .off
-        menu.addItem(autoFocusItem)
+        let changeShortcutItem = NSMenuItem(title: "Change Shortcut\u{2026}", action: #selector(changeShortcut), keyEquivalent: "")
+        changeShortcutItem.target = self
+        menu.addItem(changeShortcutItem)
+
+        let resetShortcutItem = NSMenuItem(title: "Reset Shortcut", action: #selector(resetShortcut), keyEquivalent: "")
+        resetShortcutItem.target = self
+        menu.addItem(resetShortcutItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        // TODO: Launch at Login
-        let launchItem = NSMenuItem(title: "Launch at Login", action: nil, keyEquivalent: "")
-        launchItem.isEnabled = false
-        menu.addItem(launchItem)
+        // Cursor Lands At submenu
+        let landingItem = NSMenuItem(title: "Cursor Lands At", action: nil, keyEquivalent: "")
+        let landingSubmenu = NSMenu()
+        for mode in [CursorLandingMode.smartFocus, .displayCenter] {
+            let item = NSMenuItem(title: mode.displayName, action: #selector(selectLandingMode(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = mode.rawValue
+            item.state = (mode == landingMode) ? .on : .off
+            landingSubmenu.addItem(item)
+            landingModeItems[mode] = item
+        }
+        landingItem.submenu = landingSubmenu
+        menu.addItem(landingItem)
+
+        // Ring Animation submenu
+        let ringItem = NSMenuItem(title: "Ring Animation", action: nil, keyEquivalent: "")
+        let ringSubmenu = NSMenu()
+        for preset in RingPreset.allCases {
+            let item = NSMenuItem(title: preset.displayName, action: #selector(selectRingPreset(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = preset.rawValue
+            item.state = (preset == ringPreset) ? .on : .off
+            ringSubmenu.addItem(item)
+            ringPresetItems[preset] = item
+        }
+        ringItem.submenu = ringSubmenu
+        menu.addItem(ringItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem.target = self
+        launchAtLoginItem.state = LoginItemManager.isEnabled ? .on : .off
+        menu.addItem(launchAtLoginItem)
+
+        let accessibilityItem = NSMenuItem(title: "Open Accessibility Settings\u{2026}", action: #selector(openAccessibilitySettings), keyEquivalent: "")
+        accessibilityItem.target = self
+        menu.addItem(accessibilityItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -84,12 +162,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
+    private func shortcutLabel() -> String {
+        "Shortcut: \(currentShortcut.displayString)  \u{00B7}  4-finger tap"
+    }
+
     // MARK: - Hotkey
 
     private func registerHotkey() {
-        hotkeyManager.register { [weak self] in
+        hotkeyManager.register(shortcut: currentShortcut) { [weak self] in
             self?.moveCursor()
         }
+    }
+
+    @objc private func changeShortcut() {
+        let recorder = ShortcutRecorderWindow()
+        recorderWindow = recorder
+        recorder.present { [weak self] shortcut in
+            guard let self = self else { return }
+            self.recorderWindow = nil
+            guard let shortcut = shortcut else { return }
+            self.currentShortcut = shortcut
+            shortcut.save()
+            self.hotkeyManager.update(to: shortcut)
+            self.shortcutMenuItem.title = self.shortcutLabel()
+        }
+    }
+
+    @objc private func resetShortcut() {
+        currentShortcut = .default
+        currentShortcut.save()
+        hotkeyManager.update(to: currentShortcut)
+        shortcutMenuItem.title = shortcutLabel()
     }
 
     // MARK: - Gesture
@@ -110,11 +213,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let screens = displayManager.orderedScreens()
         guard let target = cursorMover.nextScreen(from: screens) else { return }
 
-        // Landing point: AX focus point → window center → screen center
         let landingPoint: CGPoint
-        if isAutoFocusEnabled, let result = windowFocusManager.focusTopWindow(on: target) {
-            landingPoint = result.cursorTarget
-        } else {
+        switch landingMode {
+        case .smartFocus:
+            if let result = windowFocusManager.focusTopWindow(on: target) {
+                landingPoint = result.cursorTarget
+            } else {
+                landingPoint = cursorMover.screenCenter(target)
+            }
+        case .displayCenter:
             landingPoint = cursorMover.screenCenter(target)
         }
 
@@ -122,24 +229,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         overlayManager.showHint(at: landingPoint, on: target)
     }
 
-    @objc private func toggleAutoFocus() {
-        isAutoFocusEnabled.toggle()
-        autoFocusItem.state = isAutoFocusEnabled ? .on : .off
+    @objc private func selectLandingMode(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let mode = CursorLandingMode(rawValue: raw) else { return }
+        landingMode = mode
+        mode.save()
+        for (m, item) in landingModeItems {
+            item.state = (m == mode) ? .on : .off
+        }
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        let target = !LoginItemManager.isEnabled
+        if LoginItemManager.setEnabled(target) {
+            launchAtLoginItem.state = LoginItemManager.isEnabled ? .on : .off
+        } else {
+            let alert = NSAlert()
+            alert.messageText = "Couldn't update Launch at Login"
+            alert.informativeText = "macOS rejected the change. You can manage login items in System Settings \u{2192} General \u{2192} Login Items."
+            alert.alertStyle = .warning
+            alert.runModal()
+            launchAtLoginItem.state = LoginItemManager.isEnabled ? .on : .off
+        }
+    }
+
+    @objc private func selectRingPreset(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let preset = RingPreset(rawValue: raw) else { return }
+        ringPreset = preset
+        preset.save()
+        for (p, item) in ringPresetItems {
+            item.state = (p == preset) ? .on : .off
+        }
     }
 
     // MARK: - Permissions
 
+    private static let didPromptAccessibilityKey = "didPromptAccessibility"
+
     private func checkAccessibility() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
+        let defaults = UserDefaults.standard
         if trusted {
             NSLog("[D-Switch] Accessibility: trusted")
-        } else {
-            NSLog("[D-Switch] Accessibility: not trusted — opening System Settings. Grant access to enable precise focus-point detection.")
-            // Open System Settings → Accessibility pane directly
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-                NSWorkspace.shared.open(url)
-            }
+            defaults.set(true, forKey: Self.didPromptAccessibilityKey)
+            return
+        }
+        // Auto-open System Settings only on the first launch where permission is missing.
+        // After that, rely on the menu item so a stale trust entry doesn't reopen Settings every launch.
+        if defaults.bool(forKey: Self.didPromptAccessibilityKey) {
+            NSLog("[D-Switch] Accessibility: not trusted — use the menu to open Settings.")
+            return
+        }
+        NSLog("[D-Switch] Accessibility: not trusted — opening System Settings. Grant access to enable precise focus-point detection.")
+        defaults.set(true, forKey: Self.didPromptAccessibilityKey)
+        openAccessibilityPane()
+    }
+
+    @objc private func openAccessibilitySettings() {
+        openAccessibilityPane()
+    }
+
+    private func openAccessibilityPane() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
         }
     }
 

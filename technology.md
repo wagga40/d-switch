@@ -5,13 +5,15 @@
 ```
 Sources/
   main.swift                   App entry point
-  AppDelegate.swift            Menu bar setup, orchestration
-  HotkeyManager.swift          Carbon-based global hotkey
+  AppDelegate.swift            Menu bar setup, orchestration, settings
+  HotkeyManager.swift          Carbon-based global hotkey (rebindable)
+  Shortcut.swift               Shortcut value type + UserDefaults persistence
+  ShortcutRecorderWindow.swift Floating panel that captures the next key combo
   GestureManager.swift         Multitouch four-finger tap detection
   DisplayManager.swift         Screen enumeration and ordering
   CursorMover.swift            Coordinate math and cursor warping
   WindowFocusManager.swift     Detect + activate topmost window on target display
-  OverlayFeedbackManager.swift Visual feedback overlay
+  OverlayFeedbackManager.swift Visual feedback overlay (Subtle/Standard/Prominent presets)
 ```
 
 No third-party dependencies. Uses Carbon Event Manager for global hotkeys, MultitouchSupport.framework for trackpad gestures, CoreGraphics for cursor movement, and AppKit/QuartzCore for the overlay animation.
@@ -75,10 +77,35 @@ The trackpad gesture uses the private MultitouchSupport framework — the same a
 
 **Conflict with system gestures:** A four-finger *tap* is not assigned to any system gesture by default, so there should be no conflicts. Four-finger *swipes* (Mission Control, desktop switching) involve movement that exceeds the tap threshold.
 
+## Customization
+
+All preferences live in the menu bar (no separate Preferences window) and persist via `UserDefaults`:
+
+- **Shortcut** — record a new global hotkey via *Change Shortcut…*. The recorder requires at least one modifier (⌘/⌃/⌥/⇧) to avoid bare-letter shortcuts hijacking ordinary typing. Esc cancels.
+- **Cursor Lands At** — choose between *Topmost Window (Smart)* (the AX-driven four-tier landing described above) and *Display Center* (always the geometric center of the target display).
+- **Ring Animation** — three presets: *Subtle* (close to the original feel), *Standard* (default; larger and longer than the original), *Prominent* (largest and slowest, useful on busy displays). Stroke widths scale with the ring diameter so the proportions stay consistent.
+- **Launch at Login** — toggle in the menu to register/unregister the app via `SMAppService.mainApp` (ServiceManagement). The checkmark reflects the current state; the user can also manage it in System Settings → General → Login Items. macOS may decline registration if the bundle is not in `/Applications`; in that case D-Switch shows an alert and the toggle stays off.
+
+### Where Preferences Are Stored
+
+Preferences are written through `UserDefaults.standard` under the bundle identifier `com.dswitch.app`, which macOS persists at:
+
+```
+~/Library/Preferences/com.dswitch.app.plist
+```
+
+Stored keys include the recorded shortcut, the *Cursor Lands At* mode, and the *Ring Animation* preset. *Launch at Login* state is managed by macOS via `SMAppService` and is not stored in this plist.
+
+Because macOS caches defaults in memory through `cfprefsd`, prefer the `defaults` CLI over editing the plist directly:
+
+```
+defaults read com.dswitch.app                  # inspect
+defaults write com.dswitch.app <key> <value>   # change
+defaults delete com.dswitch.app                # reset all
+```
+
 ## Known Limitations
 
-- **Shortcut is fixed** at Cmd+Shift+M. User customization is not yet implemented (the code is structured for it).
-- **Launch at Login** is listed but not yet wired up. You can add D-Switch to Login Items manually in System Settings.
 - If another app registers the same global shortcut, D-Switch logs a warning and remains usable via the menu bar and trackpad gesture.
 - **Four-finger tap uses a private framework** (MultitouchSupport). While this framework has been stable across many macOS versions, Apple could change or remove it in a future release. If that happens, the gesture stops working but the app continues to function via the keyboard shortcut.
 - **No trackpad on desktop Macs** (Mac mini, Mac Studio, Mac Pro without Magic Trackpad): the gesture is unavailable; the keyboard shortcut works normally.
