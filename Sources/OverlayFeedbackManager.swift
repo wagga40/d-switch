@@ -89,6 +89,14 @@ enum RingPreset: String, CaseIterable {
 class OverlayFeedbackManager {
 
     private var overlayWindow: NSPanel?
+    private var dismissWorkItem: DispatchWorkItem?
+    private var mouseMonitor: Any?
+    private var mouseMonitorActiveAfter: CFTimeInterval = 0
+
+    /// Ignore mouse movement for this long after the overlay appears — long enough to
+    /// swallow the synthetic `.mouseMoved` posted by `CursorMover.warpCursor`.
+    private let mouseDismissGrace: CFTimeInterval = 0.25
+    private let mouseDismissFade: CFTimeInterval = 0.15
 
     func showHint(at cgPoint: CGPoint, on screen: NSScreen) {
         dismissOverlay()
@@ -137,20 +145,54 @@ class OverlayFeedbackManager {
         // Drive the layer animations.
         ringView.startAnimation()
 
-        // Fade out + dismiss.
+        // Natural fade out + dismiss. Stored as a cancellable work item so a follow-up
+        // `showHint` (e.g., another screen change) can cancel it before it fades the
+        // *new* panel by mistake.
         let fadeOutAt = preset.totalDuration - preset.panelFadeOut
-        DispatchQueue.main.asyncAfter(deadline: .now() + fadeOutAt) { [weak self] in
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = preset.panelFadeOut
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-                panel.animator().alphaValue = 0
-            }, completionHandler: {
-                self?.dismissOverlay()
-            })
+        let work = DispatchWorkItem { [weak self] in
+            self?.fadeOutAndDismiss(duration: preset.panelFadeOut)
+        }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeOutAt, execute: work)
+
+        // Dismiss early on real mouse movement, after a grace period that swallows
+        // the synthetic mouseMoved fired by the cursor warp.
+        mouseMonitorActiveAfter = CACurrentMediaTime() + mouseDismissGrace
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        ) { [weak self] _ in
+            guard let self else { return }
+            if CACurrentMediaTime() >= self.mouseMonitorActiveAfter {
+                self.fadeOutAndDismiss(duration: self.mouseDismissFade)
+            }
         }
     }
 
+    private func fadeOutAndDismiss(duration: CFTimeInterval) {
+        guard let panel = overlayWindow else { return }
+        // Cancel any other dismissal path so we don't double-fade.
+        dismissWorkItem?.cancel()
+        dismissWorkItem = nil
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMonitor = nil
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = duration
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.dismissOverlay()
+        })
+    }
+
     private func dismissOverlay() {
+        dismissWorkItem?.cancel()
+        dismissWorkItem = nil
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMonitor = nil
+        }
         overlayWindow?.orderOut(nil)
         overlayWindow = nil
     }
